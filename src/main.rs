@@ -38,6 +38,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     llm_os::init();
     serial_println!("[kernel] GDT, IDT, PIC initialized");
 
+    if boot_info.physical_memory_offset == 0 {
+        panic!("Physical memory offset is 0! Bootloader failed to map memory.");
+    }
+
     // Phase 2: Set up memory management
     use llm_os::memory;
     use x86_64::VirtAddr;
