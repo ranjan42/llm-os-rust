@@ -8,6 +8,14 @@
     "os": "none",
     "executables": true,
     "linker-flavor": "ld.lld",
+    "pre-link-args": {
+        "ld.lld": [
+            "--image-base",
+            "0x200000",
+            "-z",
+            "max-page-size=0x1000"
+        ]
+    },
     "linker": "rust-lld",
     "panic-strategy": "abort",
     "disable-redzone": true,
