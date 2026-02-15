@@ -7,7 +7,7 @@ description = "An AI-First Operating System in Rust — inspired by Andrej Karpa
 license = "MIT"
 
 [dependencies]
-bootloader = { version = "0.9", features = ["map_physical_memory"] }
+bootloader = { version = "=0.9.23", features = ["map_physical_memory"] }
 volatile = "0.2.6"
 spin = "0.5.2"
 x86_64 = "0.14"
