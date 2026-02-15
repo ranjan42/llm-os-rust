@@ -77,6 +77,7 @@ hardware.
 ```
 src/
 ├── main.rs          # Kernel entry point — boots hardware, starts agent
+├── linker.ld        # Custom linker script — enforces 4K page alignment
 ├── lib.rs           # Kernel library — init, HLT loop, test infra
 ├── vga_buffer.rs    # VGA text-mode display driver
 ├── serial.rs        # UART 16550 serial port driver
@@ -92,7 +93,8 @@ src/
 
 ## What's Working
 
-- Bare-metal x86_64 kernel booting via the `bootloader` crate
+- Bare-metal x86_64 kernel booting via a **vendored & patched bootloader** (ensures ABI stability)
+- **Custom linker script** enforcing 4K page alignment to prevent boot panics
 - GDT + TSS with interrupt stack table for safe double-fault handling
 - IDT with exception handlers (breakpoint, double fault, page fault)
 - PIC-based hardware interrupts (timer, keyboard)

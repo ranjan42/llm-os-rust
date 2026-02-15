@@ -45,6 +45,31 @@ The file defines two panic handlers, selected at compile time:
 
 ---
 
+## `src/linker.ld` — Custom Linker Script
+
+**Lines:** 24
+**Purpose:** Explicitly defines the memory layout of the kernel ELF sections
+to ensure compatibility with the bootloader.
+
+### Why It Exists
+
+The `bootloader` crate (v0.9.x) maps the kernel segments into memory. If the
+default linker (rust-lld) packs sections too tightly (e.g., placing the end
+of `.text` and the start of `.rodata` on the same 4 KiB page), the bootloader's
+mapping logic fails because it tries to map the same physical page twice with
+conflicting permissions (Execute+Read vs Read-Only). This causes a
+`Mapping(PageAlreadyMapped)` panic on boot.
+
+### What It Does
+
+- Sets the load address to `2MB` (`0x200000`).
+- Forces `4KiB` alignment (`ALIGN(4096)`) between all major sections (`.text`,
+  `.rodata`, `.data`, `.bss`).
+- Ensures that each section occupies disjoint physical pages, preventing the
+  overlap issue.
+
+---
+
 ## `src/lib.rs` — Kernel Library
 
 **Lines:** 105  

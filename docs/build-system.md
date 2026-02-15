@@ -21,13 +21,10 @@ Standard Rust project manifest. A few things worth noting:
 
 **Bootloader dependency:**
 ```toml
-bootloader = { version = "=0.9.23", features = ["map_physical_memory"] }
+bootloader = { path = "./bootloader", features = ["map_physical_memory"] }
 ```
-- Pinned to `=0.9.23` because newer 0.9.x versions (0.9.34) use a target
-  JSON format that's incompatible with the `bootimage` tool (v0.10.3).
-- The `map_physical_memory` feature tells the bootloader to map all of
-  physical memory at a configurable offset. This is how we access page
-  tables and other physical data structures from kernel code.
+- We vendor the `bootloader` crate (v0.9.23) locally in `./bootloader` instead of pulling from crates.io.
+- **Why?** To ensure ABI stability and compatibility with modern Rust Nightly toolchains. The bootloader needs to be compiled with a target definition that exactly matches the kernel's expectations (specifically LLVM `data-layout`). By vendoring it, we can patch its internal `x86_64-bootloader.json` target file to match our kernel's data layout, preventing cryptic "stack overflow" or "kernel mapping failed" panics on boot.
 
 **No-std crates:**
 All dependencies are `no_std` compatible. The `lazy_static` crate uses
@@ -105,6 +102,11 @@ can't use any built-in target because we need specific bare-metal settings.
     "os": "none",
     "executables": true,
     "linker-flavor": "ld.lld",
+    "pre-link-args": {
+        "ld.lld": [
+            "--script=src/linker.ld"
+        ]
+    },
     "linker": "rust-lld",
     "panic-strategy": "abort",
     "disable-redzone": true,
@@ -118,28 +120,60 @@ can't use any built-in target because we need specific bare-metal settings.
   is a generic freestanding x86_64 target.
 
 - **`data-layout`**: LLVM's data layout string. Must match the LLVM version
-  in the toolchain exactly, or you get "data-layout differs" errors. The
-  format encodes endianness, pointer sizes, alignment rules, etc.
+  in the toolchain exactly. We maintain ours to match `nightly-2025-02-01`.
 
-- **`os: "none"`**: no operating system. This means no libc, no system calls,
-  no standard library.
+- **`pre-link-args`**:
+  - `--script=src/linker.ld`: Tells the linker to use our custom linker script.
+  This is **CRITICAL**. Without it, the linker uses default section alignment
+  (often 2MB or variable), which can cause ELF segments to overlap on physical
+  pages in a way that confuses the bootloader. If you see panics like
+  `Mapping(PageAlreadyMapped(PhysFrame...))`, this is the fix. The script
+  forces 4KiB page alignment for all sections.
 
-- **`linker: "rust-lld"`**: use LLVM's linker instead of the system linker.
-  This is a cross-linker that works on any host OS.
+- **`linker-flavor` / `linker`**: Use LLVM's `lld` linker via `rust-lld`.
 
-- **`panic-strategy: "abort"`**: don't try to unwind on panic. Must match
-  the `Cargo.toml` setting.
+- **`panic-strategy: "abort"`**: don't try to unwind on panic.
 
-- **`disable-redzone: true`**: the red zone is a 128-byte region below the
-  stack pointer that leaf functions can use without adjusting RSP. This is
-  dangerous in kernel code because hardware interrupts use the same stack —
-  an interrupt would overwrite the red zone. Disabling it is mandatory for
-  kernel code.
+- **`disable-redzone: true`**: mandatory for kernel code to prevent
+  interrupts from corrupting the stack.
 
-- **`features: "-mmx,-sse,+soft-float"`**: disable MMX and SSE instructions,
-  use software floating-point. Kernel code should not use SIMD registers
-  because they need to be saved/restored on every interrupt, which is
-  expensive. We tell LLVM to avoid them entirely.
+- **`features: "-mmx,-sse,+soft-float"`**: disable SIMD to avoid
+  complex context switching requirements.
+
+---
+
+## `src/linker.ld` — Custom Linker Script
+
+We use a explicit linker script to control the kernel's memory layout.
+
+```ld
+ENTRY(_start)
+
+SECTIONS {
+    . = 0x200000; /* Load kernel at 2MB */
+
+    .text : {
+        *(.text .text.*)
+    }
+
+    . = ALIGN(4096);
+    .rodata : {
+        *(.rodata .rodata.*)
+    }
+
+    /* ... .data and .bss similarly aligned ... */
+}
+```
+
+**Why is this needed?**
+The `bootloader` crate (v0.9.x) maps the kernel by iterating over ELF segments.
+If the linker aggressively packs sections (e.g., putting `.text` end and
+`.rodata` start on the same 4KiB page), the bootloader sees two different
+segments mapping to the same physical frame. It tries to map the frame twice
+(once Read-Exec, once Read-Only), which causes a `PageAlreadyMapped` panic.
+
+By forcing `ALIGN(4096)` between sections, we ensure every section starts on
+a fresh page, preventing segment overlap and keeping the bootloader happy.
 
 ---
 
