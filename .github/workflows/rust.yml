@@ -11,12 +11,51 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+
+    - name: Install Rust nightly
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: nightly-2025-02-01
+        components: rust-src, rustfmt, clippy, llvm-tools-preview
+
+    - name: Install bootimage
+      run: cargo install bootimage
+
+    - name: Patch bootloader target spec
+      run: |
+        # bootloader 0.9.23's x86_64-bootloader.json has an outdated data-layout
+        # that doesn't match the LLVM version in nightly-2025-02-01.
+        BOOTLOADER_DIR=$(find ~/.cargo/registry/src -type d -name "bootloader-0.9.23" 2>/dev/null | head -1)
+        if [ -z "$BOOTLOADER_DIR" ]; then
+          # trigger a fetch so the crate gets downloaded
+          cargo fetch
+          BOOTLOADER_DIR=$(find ~/.cargo/registry/src -type d -name "bootloader-0.9.23" 2>/dev/null | head -1)
+        fi
+        if [ -n "$BOOTLOADER_DIR" ] && [ -f "$BOOTLOADER_DIR/x86_64-bootloader.json" ]; then
+          sed -i 's|"data-layout": "e-m:e-i64:64-f80:128-n8:16:32:64-S128"|"data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"|' "$BOOTLOADER_DIR/x86_64-bootloader.json"
+          echo "Patched bootloader target spec at $BOOTLOADER_DIR"
+        else
+          echo "Warning: bootloader-0.9.23 not found, will be patched after first build attempt"
+        fi
+
+    - name: Build bootimage
+      run: |
+        # If the first build fails because bootloader wasn't fetched yet, patch and retry
+        if ! cargo bootimage; then
+          BOOTLOADER_DIR=$(find ~/.cargo/registry/src -type d -name "bootloader-0.9.23" 2>/dev/null | head -1)
+          if [ -n "$BOOTLOADER_DIR" ] && [ -f "$BOOTLOADER_DIR/x86_64-bootloader.json" ]; then
+            sed -i 's|"data-layout": "e-m:e-i64:64-f80:128-n8:16:32:64-S128"|"data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"|' "$BOOTLOADER_DIR/x86_64-bootloader.json"
+            echo "Patched bootloader target spec, retrying build..."
+            cargo bootimage
+          else
+            echo "Build failed and bootloader not found"
+            exit 1
+          fi
+        fi
+
+    - name: Verify bootimage exists
+      run: test -f target/x86_64-llm-os/debug/bootimage-llm-os.bin && echo "Bootimage created successfully"
