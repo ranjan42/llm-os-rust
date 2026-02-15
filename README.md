@@ -1,12 +1,67 @@
 # LLM OS — An AI-First Operating System in Rust
 
-> *"What happens when you invert the entire operating system?"*
+A bare-metal x86_64 operating system kernel written in Rust, inspired by
+[Andrej Karpathy's "LLM OS" concept](https://twitter.com/karpathy). The idea
+is simple: instead of the kernel serving a human user through a shell, it serves
+a single AI Agent that *is* the userland.
 
-A bare-metal x86_64 operating system kernel written in Rust, inspired by [Andrej Karpathy's "LLM OS" concept](https://twitter.com/karpathy). Instead of serving a human user through a shell, the kernel serves a single AI Agent that **is** the userland.
+Every traditional OS primitive has an LLM equivalent — the CPU becomes the LLM,
+RAM becomes the context window, disk becomes a vector store, and system calls
+become tool invocations. This project builds that mapping from scratch on real
+hardware.
 
 ## Architecture
 
-Every traditional OS concept maps to its LLM equivalent:
+```
++------------------------------------------------------------------+
+|                        Agent Runtime                             |
+|         (the single "super process" — the AI userland)           |
+|                                                                  |
+|   +------------------+  +----------------+  +----------------+   |
+|   | Context Window   |  | Tool Registry  |  | Command Parser |   |
+|   | (working memory, |  | (calculator,   |  | (input routing |   |
+|   |  token buffer,   |  |  memory store, |  |  and dispatch) |   |
+|   |  eviction policy)|  |  recall, echo) |  |                |   |
+|   +------------------+  +----------------+  +----------------+   |
++----------------------------------+-------------------------------+
+                                   |
+                          tool calls / responses
+                                   |
++----------------------------------v-------------------------------+
+|                       Kernel Services                            |
+|                                                                  |
+|   +--------------+  +----------------+  +---------------------+  |
+|   | Heap         |  | Memory Manager |  | Interrupt Handlers  |  |
+|   | Allocator    |  | (4-level page  |  | (keyboard, timer,   |  |
+|   | (1 MiB       |  |  tables, frame |  |  breakpoint, double |  |
+|   |  linked-list)|  |  allocator)    |  |  fault, page fault) |  |
+|   +--------------+  +----------------+  +---------------------+  |
+|                                                                  |
+|   +--------------+                                               |
+|   | GDT + TSS    |                                               |
+|   | (interrupt   |                                               |
+|   |  stack table)|                                               |
+|   +--------------+                                               |
++----------------------------------+-------------------------------+
+                                   |
+                            hardware access
+                                   |
++----------------------------------v-------------------------------+
+|                    Hardware Abstraction                           |
+|                                                                  |
+|   +----------+  +----------+  +----------+  +--------------+    |
+|   | VGA Text |  | Serial   |  | PIC 8259 |  | Bootloader   |    |
+|   | Display  |  | (UART    |  | (timer + |  | (memory map, |    |
+|   |          |  |  16550)  |  |  keyboard)|  |  page tables)|    |
+|   +----------+  +----------+  +----------+  +--------------+    |
++----------------------------------+-------------------------------+
+                                   |
++----------------------------------v-------------------------------+
+|                   Bare Metal x86_64 Hardware                     |
++------------------------------------------------------------------+
+```
+
+**How traditional OS concepts map to the LLM OS:**
 
 | Traditional OS | LLM OS |
 |---|---|
@@ -35,9 +90,8 @@ src/
     └── tools.rs     # Tool registry (the agent's "syscall table")
 ```
 
-## Current Status
+## What's Working
 
-### ✅ Implemented
 - Bare-metal x86_64 kernel booting via the `bootloader` crate
 - GDT + TSS with interrupt stack table for safe double-fault handling
 - IDT with exception handlers (breakpoint, double fault, page fault)
@@ -47,21 +101,22 @@ src/
 - 4-level page table initialization
 - Physical frame allocator from bootloader memory map
 - 1 MiB kernel heap with linked-list allocator
-- **Agent runtime** with:
+- Agent runtime with:
   - Context window with token-based eviction policy
   - Tool registry with calculator, memory store/recall, echo
   - Command-based input processing (placeholder for LLM inference)
 
-### 🚧 Roadmap
-- [ ] Network driver (virtio-net or e1000) for LLM inference API
-- [ ] Vector store for long-term memory (RAG)
-- [ ] Orchestrator for multi-task scheduling
-- [ ] Multimodal I/O (display rendering from agent output)
-- [ ] On-device inference via ONNX Runtime or llama.cpp port
+## What's Next
+
+- Network driver (virtio-net or e1000) for LLM inference API calls
+- Vector store for long-term memory (RAG)
+- Orchestrator for multi-task scheduling
+- Multimodal I/O (display rendering from agent output)
+- On-device inference via ONNX Runtime or llama.cpp port
 
 ## Building
 
-### Prerequisites
+You'll need a few things installed first:
 
 ```bash
 # Rust nightly (auto-configured by rust-toolchain.toml)
@@ -76,7 +131,7 @@ brew install qemu  # macOS
 # apt install qemu-system-x86 # Ubuntu
 ```
 
-### Build & Run
+Then build and run:
 
 ```bash
 # Build the kernel + bootable image
@@ -91,12 +146,13 @@ cargo run
 
 ## Blog Post
 
-Read the full design deep dive: [Building an AI-First Operating System in Rust from Scratch](https://ranjan42.github.io/)
+Read the full design deep dive:
+[Building an AI-First Operating System in Rust from Scratch](https://ranjan42.github.io/)
 
 ## Inspired By
 
-- [Andrej Karpathy — "LLM OS" concept](https://twitter.com/karpathy)
-- [Writing an OS in Rust — Philipp Oppermann](https://os.phil-opp.com/)
+- [Andrej Karpathy's "LLM OS" concept](https://twitter.com/karpathy)
+- [Writing an OS in Rust by Philipp Oppermann](https://os.phil-opp.com/)
 - [go-dav-os — A freestanding OS kernel in Go](https://github.com/dmarro89/go-dav-os) (a project I contribute to)
 
 ## License
